@@ -1,0 +1,37 @@
+#!/usr/bin/env node
+var homa = require('homa');
+var homa = require('homa');
+var systemId = homa.paramsWithDefaultSystemId("194729-csm");
+var request = require("request");
+
+homa.mqttHelper.on('message', function(packet) {
+	homa.settings.insert(packet.topic, packet.payload); // Check if a required settings value was received. If so, save it for later. 
+
+	if (!homa.settings.isLocked() && homa.settings.isBootstrapCompleted()) {
+		homa.settings.lock();
+		homa.mqttHelper.publish("/devices/"+ systemId + "/controls/Average/meta/type", "text", true);
+		homa.scheduler.scheduleJob('*/10 * * * *', queryConsumption); // Query every day at midnight
+		queryConsumption();
+	}
+});
+
+(function(){
+	homa.mqttHelper.connect();
+})();
+
+homa.mqttHelper.on('connect', function(packet) {
+	homa.settings.require('apiUrl'); // Set required settings
+});
+
+function queryConsumption(){
+	homa.logger.info("CSM", "Querying power consumption from  " + homa.settings.get("apiUrl"));
+	request(homa.settings.get("apiUrl"), function(error, response, body) {
+		if(!error) {
+			var data = JSON.parse(body);
+			var total = 0;		
+			var i = 0;
+			for(i in data["Sum"]) {total += data["Sum"][i]; }
+			homa.mqttHelper.publish("/devices/"+ systemId + "/controls/Average", Number((total/(++i)).toFixed(2))  + " W", true);
+		}
+	});
+}
